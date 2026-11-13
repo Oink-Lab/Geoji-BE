@@ -1,0 +1,4 @@
+# Local defaults are provided by application.yml and the ignored root .env.
+spring:
+  jpa:
+    show-sql: false
