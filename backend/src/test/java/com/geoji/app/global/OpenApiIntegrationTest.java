@@ -22,6 +22,8 @@ class OpenApiIntegrationTest {
         mvc.perform(get("/v3/api-docs"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.components.securitySchemes.bearerAuth.scheme").value("bearer"))
+            .andExpect(jsonPath("$.paths['/api/v1/challenges/current'].get.security[0].bearerAuth").isArray())
+            .andExpect(jsonPath("$.paths['/api/v1/transactions'].get.security[0].bearerAuth").isArray())
             .andExpect(jsonPath("$.paths['/api/v1/users/me'].get.security[0].bearerAuth").isArray())
             .andExpect(jsonPath("$.paths['/api/v1/auth/logout'].post.security[0].bearerAuth").isArray())
             .andExpect(jsonPath("$.paths['/api/v1/auth/login'].post.security").doesNotExist());
@@ -30,6 +32,8 @@ class OpenApiIntegrationTest {
         mvc.perform(get("/swagger-ui/index.html"))
             .andExpect(status().isOk());
         mvc.perform(get("/api/v1/users/me"))
+            .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/challenges/current"))
             .andExpect(status().isUnauthorized());
     }
 }

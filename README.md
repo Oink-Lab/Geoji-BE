@@ -57,3 +57,9 @@ Access Token은 30분, Refresh Token은 14일입니다. Refresh 세션과 Access
 ## AI 서비스
 
 Python 3.12 환경에서 `cd ai-service`, `pip install -r requirements.txt`, `uvicorn app.main:app --reload`를 실행하면 `/health`를 확인할 수 있습니다. 이 컴퓨터에는 Python 실행 파일이 없어 로컬 실행은 검증하지 못했습니다.
+
+## 가계부 및 고정지출
+거래 및 고정지출 API: [backend/PHASE2_API.md](backend/PHASE2_API.md)
+
+## 절약 챌린지
+챌린지 API: [backend/PHASE3_API.md](backend/PHASE3_API.md)
