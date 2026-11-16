@@ -57,6 +57,11 @@ public class ChallengeCalculator {
         long spentBefore = elapsed == 0
             ? 0
             : spentThrough(challenge, date.minusDays(1));
+        return allowance(challenge, date, spentBefore);
+    }
+
+    public long allowance(Challenge challenge, LocalDate date, long spentBefore) {
+        long elapsed = ChronoUnit.DAYS.between(challenge.getStartDate(), date);
         long remaining = Math.max(0, challenge.getTotalBudget() - spentBefore);
         long daysRemaining = challenge.getDurationDays() - elapsed;
         return remaining / daysRemaining

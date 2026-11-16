@@ -1,6 +1,7 @@
 package com.geoji.app.challenge.service;
 
 import com.geoji.app.challenge.dto.ChallengeDtos;
+import com.geoji.app.challenge.dto.FailureAnalysisSnapshot;
 import com.geoji.app.challenge.entity.Challenge;
 import com.geoji.app.challenge.repository.ChallengeRepository;
 import com.geoji.app.global.ApiException;
@@ -8,6 +9,8 @@ import com.geoji.app.ledger.entity.Transaction;
 import com.geoji.app.ledger.repository.TransactionRepository;
 import com.geoji.app.user.entity.User;
 import com.geoji.app.user.repository.UserRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,19 +37,22 @@ public class ChallengeService {
     private final UserRepository users;
     private final ChallengeCalculator calculator;
     private final Clock clock;
+    private final ObjectMapper json;
 
     public ChallengeService(
         ChallengeRepository challenges,
         TransactionRepository transactions,
         UserRepository users,
         ChallengeCalculator calculator,
-        Clock clock
+        Clock clock,
+        ObjectMapper json
     ) {
         this.challenges = challenges;
         this.transactions = transactions;
         this.users = users;
         this.calculator = calculator;
         this.clock = clock;
+        this.json = json;
     }
 
     private LocalDate today() {
@@ -178,12 +184,26 @@ public class ChallengeService {
     private void failIfOverBudget(Challenge challenge) {
         long spent = calculator.spentThrough(challenge, today());
         if (spent <= challenge.getTotalBudget()) return;
+        confirmFailure(challenge, spent, today());
+        challenges.saveAndFlush(challenge);
+    }
+
+    private void confirmFailure(Challenge challenge, long spent, LocalDate through) {
+        Instant confirmedAt = Instant.now(clock);
+        LocalDate finalDay = through.isAfter(challenge.getEndDate()) ? challenge.getEndDate() : through;
+        FailureAnalysisSnapshot snapshot = FailureAnalysisSnapshot.capture(
+            challenge, calculator.expenses(challenge), finalDay, confirmedAt);
+        if (snapshot.totalSpent() != spent) throw new IllegalStateException("Failure snapshot amount mismatch");
+        try {
+            challenge.setFailureAnalysisSnapshot(json.writeValueAsString(snapshot));
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Could not serialize failure snapshot", e);
+        }
         challenge.setStatus(Challenge.Status.FAILED);
-        challenge.setFailureAt(Instant.now(clock));
-        challenge.setFinishedAt(challenge.getFailureAt());
+        challenge.setFailureAt(confirmedAt);
+        challenge.setFinishedAt(confirmedAt);
         challenge.setFailureSpentSnapshot(spent);
         challenge.setFailureReason("TOTAL_BUDGET_EXCEEDED");
-        challenges.saveAndFlush(challenge);
     }
 
     private LocalDate effectiveEndDate(Challenge challenge) {
@@ -219,13 +239,10 @@ public class ChallengeService {
             ).orElseThrow();
             if (challenge.getStatus() != Challenge.Status.IN_PROGRESS) continue;
             long spent = calculator.spentThrough(challenge, challenge.getEndDate());
-            challenge.setStatus(spent > challenge.getTotalBudget()
-                ? Challenge.Status.FAILED : Challenge.Status.SUCCESS);
-            challenge.setFinishedAt(Instant.now(clock));
-            if (challenge.getStatus() == Challenge.Status.FAILED) {
-                challenge.setFailureAt(challenge.getFinishedAt());
-                challenge.setFailureSpentSnapshot(spent);
-                challenge.setFailureReason("TOTAL_BUDGET_EXCEEDED");
+            if (spent > challenge.getTotalBudget()) confirmFailure(challenge, spent, challenge.getEndDate());
+            else {
+                challenge.setStatus(Challenge.Status.SUCCESS);
+                challenge.setFinishedAt(Instant.now(clock));
             }
             challenges.saveAndFlush(challenge);
         }
