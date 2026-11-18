@@ -38,12 +38,12 @@ public class InsightService {
         var fixed = monthly.recurring(user, month);
         var comparison = monthly.comparison(user, month);
         List<Map<String, Object>> messages = new ArrayList<>();
-        long total = (long) basic.get("totalExpense");
+        long total = ((Number) basic.get("totalExpense")).longValue();
         @SuppressWarnings("unchecked") var top = (Map<String, Object>) basic.get("mostSpentCategory");
         if (top != null) messages.add(message("TOP_CATEGORY",
             month + "에는 " + top.get("name") + "가 소비의 " + top.get("sharePercent") + "%를 차지했어요.",
             map("category", top.get("code"), "sharePercent", top.get("sharePercent"), "totalExpense", total)));
-        long recurring = (long) fixed.get("recurringExpense");
+        long recurring = ((Number) fixed.get("recurringExpense")).longValue();
         if (recurring > 0) messages.add(message("RECURRING_SHARE",
             "고정지출이 전체 소비의 " + fixed.get("recurringSharePercent") + "%였어요.",
             map("recurringExpense", recurring, "sharePercent", fixed.get("recurringSharePercent"))));
@@ -71,7 +71,7 @@ public class InsightService {
         long earlySpent = ctx.days().stream().limit(earlyLength).mapToLong(ChallengeAnalyticsService.Day::spent).sum();
         long lateSpent = ctx.days().stream().skip(lateStart).mapToLong(ChallengeAnalyticsService.Day::spent).sum();
         long earlySavings = ctx.days().stream().limit(earlyLength)
-            .mapToLong(d -> Math.max(0, d.difference())).sum();
+            .mapToLong(ChallengeAnalyticsService.Day::difference).sum();
         if (ctx.dayCount() > 0) messages.add(message("ALLOWANCE_DAYS",
             ctx.dayCount() + "일 중 " + under + "일 동안 하루 권장금액을 지켰어요.",
             map("elapsedDays", ctx.dayCount(), "daysWithinAllowance", under)));

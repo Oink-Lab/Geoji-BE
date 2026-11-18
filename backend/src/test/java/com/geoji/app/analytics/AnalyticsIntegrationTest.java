@@ -277,6 +277,55 @@ class AnalyticsIntegrationTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void individualAndOverallConcentrationUseTheSameSegments() {
+        assertSegmentAligned(1, 0, "EARLY");
+        assertSegmentAligned(2, 1, "LATE");
+        assertSegmentAligned(5, 1, "MIDDLE");
+        assertSegmentAligned(7, 4, "LATE");
+    }
+
+    @SuppressWarnings("unchecked")
+    private void assertSegmentAligned(int duration, int expenseDay, String expected) {
+        User owner = user();
+        LocalDate start = LocalDate.of(2026, 11, 1);
+        Challenge c = challenge(owner, start, duration, 10_000, Challenge.Status.SUCCESS);
+        c.setFinishedAt(LocalDate.of(2026, 11, 10).atStartOfDay(ZoneId.of("Asia/Seoul")).toInstant());
+        challenges.saveAndFlush(c);
+        transaction(owner, start.plusDays(expenseDay), 100,
+            LedgerTypes.Type.EXPENSE, LedgerTypes.Category.FOOD, LedgerTypes.Source.MANUAL);
+        List<Map<String, Object>> segments = (List<Map<String, Object>>) challengeAnalytics.patterns(owner, c.getId()).get("segments");
+        Map<String, Object> strongest = segments.stream()
+            .max(Comparator.comparingLong(s -> (long) s.get("expense"))).orElseThrow();
+        assertEquals(expected, strongest.get("segment"));
+        assertEquals(strongest.get("segment"), aggregate.overall(owner).get("mostOftenConcentratedSegment"));
+    }
+
+    @Test
+    void volatilityUsesUnroundedDeviationForCoefficient() {
+        User owner = user();
+        Challenge c = challenge(owner, LocalDate.of(2026, 11, 1), 4, 100, Challenge.Status.SUCCESS);
+        transaction(owner, LocalDate.of(2026, 11, 4), 1,
+            LedgerTypes.Type.EXPENSE, LedgerTypes.Category.FOOD, LedgerTypes.Source.MANUAL);
+        var volatility = at(challengeAnalytics.patterns(owner, c.getId()), "volatility");
+        assertEquals(0.43, volatility.get("standardDeviation"));
+        assertEquals(1.73, volatility.get("coefficientOfVariation"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void earlySavingsSubtractsOverAllowanceDaysBeforeWritingInsight() {
+        User owner = user();
+        Challenge c = challenge(owner, LocalDate.of(2026, 11, 1), 9, 9_000, Challenge.Status.SUCCESS);
+        transaction(owner, LocalDate.of(2026, 11, 2), 3_000,
+            LedgerTypes.Type.EXPENSE, LedgerTypes.Category.FOOD, LedgerTypes.Source.MANUAL);
+        var analysis = insights.challenge(owner, c.getId());
+        assertEquals(-17L, at(analysis, "outcome").get("earlySavings"));
+        List<Map<String, Object>> messages = (List<Map<String, Object>>) analysis.get("insights");
+        assertTrue(messages.stream().noneMatch(m -> "EARLY_SAVINGS".equals(m.get("code"))));
+    }
+
+    @Test
     void analyticsEndpointsRequireAuthentication() throws Exception {
         mvc.perform(get("/api/v1/analytics/monthly?month=2026-11")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/analytics/challenges/overall")).andExpect(status().isUnauthorized());

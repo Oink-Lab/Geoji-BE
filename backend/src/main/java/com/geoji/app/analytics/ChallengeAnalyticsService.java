@@ -90,6 +90,14 @@ public class ChallengeAnalyticsService {
             "depletionGapPoints", round(d.budgetUsePercent() - periodProgress));
     }
 
+    static int segmentIndex(int dayIndex, int dayCount) {
+        if (dayCount <= 1) return 0;
+        if (dayCount == 2) return dayIndex == 0 ? 0 : 2;
+        for (int part = 0; part < 3; part++)
+            if (dayIndex < (part + 1) * dayCount / 3) return part;
+        return 2;
+    }
+
     public Map<String, Object> overview(User user, UUID id) {
         Context ctx = load(user, id);
         Challenge c = ctx.challenge();
@@ -122,11 +130,13 @@ public class ChallengeAnalyticsService {
         Context ctx = load(user, id);
         List<Day> days = ctx.days();
         List<Map<String, Object>> thirds = new ArrayList<>();
-        String[] names = days.size() == 2 ? new String[]{"EARLY", "LATE"}
-            : days.size() == 1 ? new String[]{"EARLY"} : new String[]{"EARLY", "MIDDLE", "LATE"};
-        for (int part = 0; part < names.length && !days.isEmpty(); part++) {
-            int from = part * days.size() / names.length, to = (part + 1) * days.size() / names.length;
-            List<Day> segment = days.subList(from, to);
+        List<List<Day>> segmentDays = List.of(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+        for (int index = 0; index < days.size(); index++)
+            segmentDays.get(segmentIndex(index, days.size())).add(days.get(index));
+        String[] names = {"EARLY", "MIDDLE", "LATE"};
+        for (int part = 0; part < names.length; part++) {
+            List<Day> segment = segmentDays.get(part);
+            if (segment.isEmpty()) continue;
             List<Transaction> segmentExpense = within(ctx.expenses(), segment.get(0).date(), segment.get(segment.size() - 1).date());
             long spent = sum(segmentExpense);
             var cats = categoryRows(segmentExpense, segment.size());
@@ -141,7 +151,7 @@ public class ChallengeAnalyticsService {
         }
         double mean = days.isEmpty() ? 0 : (double) ctx.spent() / days.size();
         double variance = days.stream().mapToDouble(d -> Math.pow(d.spent() - mean, 2)).average().orElse(0);
-        double deviation = round(Math.sqrt(variance));
+        double deviation = Math.sqrt(variance);
         int maxUnder = 0, maxOver = 0, under = 0, over = 0;
         for (Day day : days) {
             if (day.difference() >= 0) { under++; over = 0; }
@@ -153,7 +163,7 @@ public class ChallengeAnalyticsService {
         List<Transaction> fixed = ctx.expenses().stream().filter(t -> t.getSource() == LedgerTypes.Source.RECURRING).toList();
         return map("challengeId", id, "analysisThrough", ctx.through(), "segments", thirds,
             "volatility", map("dailyMean", round(mean), "maximum", days.stream().mapToLong(Day::spent).max().orElse(0),
-                "minimum", days.stream().mapToLong(Day::spent).min().orElse(0), "standardDeviation", deviation,
+                "minimum", days.stream().mapToLong(Day::spent).min().orElse(0), "standardDeviation", round(deviation),
                 "coefficientOfVariation", mean == 0 || days.size() < 2 ? null : round(deviation / mean),
                 "comparable", mean > 0 && days.size() >= 2),
             "streaks", map("longestWithinAllowance", maxUnder, "longestOverAllowance", maxOver,

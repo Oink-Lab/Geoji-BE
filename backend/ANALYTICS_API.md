@@ -41,9 +41,12 @@
     "totalExpense": 1600,
     "totalIncome": 300,
     "expenseCount": 2,
+    "incomeCount": 1,
+    "averageExpenseTransaction": 800.0,
     "dailyAverageExpense": 123.08,
     "categories": [
-      {"code": "FOOD", "name": "식비", "amount": 1000, "count": 1, "sharePercent": 62.5, "rank": 1}
+      {"code": "FOOD", "name": "식비", "amount": 1000, "count": 1, "averageTransaction": 1000.0, "sharePercent": 62.5, "rank": 1, "dailyAverage": 76.92},
+      {"code": "HOUSING", "name": "주거·공과금", "amount": 600, "count": 1, "averageTransaction": 600.0, "sharePercent": 37.5, "rank": 2, "dailyAverage": 46.15}
     ]
   },
   "error": null
@@ -51,6 +54,43 @@
 ```
 
 요약 응답의 각 `insights[]` 항목은 `code`, `message`, `evidence`를 포함합니다. 근거가 충분하지 않으면 `analysis.state=INSUFFICIENT_DATA`와 빈 목록을 반환합니다. 별도의 LLM 호출이나 분석 캐시는 사용하지 않습니다.
+
+## 프론트엔드 연동 기준
+
+- `month`는 `YYYY-MM`, `date`·`from`·`to`·`through`·`analysisThrough`는 `YYYY-MM-DD` 문자열입니다. `finishedAt`·`failureAt`·`confirmedAt`처럼 시각을 담은 필드는 ISO 8601 UTC 문자열(`...Z`) 또는 `null`입니다. ID는 UUID 문자열입니다.
+- 미래 월 분석은 기존 명세와 API 계약대로 HTTP 400, `error.code=FUTURE_MONTH`를 반환합니다. 월 선택 UI에서 분석 요청을 막아 주세요. 거래가 없는 과거·현재 월은 정상 응답과 0/빈 목록으로 표시합니다.
+- 실제 서버의 소비 카테고리 코드는 `FOOD`(식비), `TRANSPORT`(교통), `SHOPPING`(쇼핑), `HOUSING`(주거·공과금), `SUBSCRIPTION`(통신·구독), `LEISURE`(문화·여가), `HEALTH`(건강·운동), `EDUCATION`(교육), `GIFT`(경조사·선물), `ETC_EXPENSE`(기타)입니다. 입금은 `SALARY`(급여), `ALLOWANCE`(용돈), `SIDE_INCOME`(부수입), `REFUND`(환급·환불), `FINANCIAL_INCOME`(금융수익), `ETC_INCOME`(기타)입니다. 두 종류의 기타는 코드로 구분합니다. 화면의 기존 카테고리 목록과 다를 수 있으므로 서버의 `/api/v1/transactions/categories?type=EXPENSE` 또는 `type=INCOME`을 기준으로 연동해 주세요.
+- 시작일은 DAY 1입니다. 일일 권장액은 **남은 예산 ÷ 오늘 포함 남은 일수의 올림값**입니다. 마지막 날의 남은 일수는 1이므로 0으로 나누지 않습니다. `difference=allowance-spent`가 0이면 권장액을 지킨 날로 집계합니다. 프론트의 임시 내림 계산과 다르므로 화면 계산을 맞춰야 합니다.
+- DB의 `category_code`, `source`는 NOT NULL이며 애플리케이션에서도 필수값입니다. 분석의 거래·카테고리 응답은 이 스키마를 전제로 합니다.
+
+### 필드와 타입
+
+공통으로 `long` 금액·건수는 JSON 정수, 비율·평균·표준편차는 JSON 숫자(소수 둘째 자리 반올림)입니다. `null`은 계산 불가·기록 없음이고 0은 계산된 0입니다. 아래 중첩 구조는 여러 경로에서 재사용합니다.
+
+| 구조 | 필드와 타입 |
+| --- | --- |
+| `analysis` | `state: string`, `sufficientData: boolean` |
+| `category` | `code: string`, `name: string`, `amount: integer`, `count: integer`, `averageTransaction: number`, `sharePercent: number`, `rank: integer`, `dailyAverage: number` |
+| `change` | `previous: integer\|number`, `current: integer\|number`, `difference: integer\|number`, `changePercent: number\|null`, `comparable: boolean` |
+| `spendingDay` | `date: YYYY-MM-DD`, `amount: integer` |
+| `largestTransaction` | `id: UUID`, `date: YYYY-MM-DD`, `amount: integer`, `category: string`, `source: string` |
+| `insight` | `code: string`, `message: string`, `evidence: object` (근거 지표별 키는 `code`에 따름) |
+
+| 경로의 `data` | 최상위 필드와 타입 |
+| --- | --- |
+| `/monthly` | `month: YYYY-MM`, `through: date`, `userId: UUID`, `analysis: object`, `totalExpense/totalIncome: integer`, `expenseCount/incomeCount/expenseDays: integer`, `averageExpenseTransaction/dailyAverageExpense/topCategorySharePercent: number`, `categories/topThreeCategories: category[]`, `mostSpentCategory/leastSpentCategory: category\|null` |
+| `/monthly/patterns` | `month`, `through`, `userId`, `days: {date,expense,income,expenseCount}[]`, `mostSpentDay/leastSpentDayWithExpense: spendingDay\|null`, `daysWithoutRecordedExpense: integer`, `largestTransaction: object\|null`, `topThreeDays: spendingDay[]`, `concentration: {topOnePercent,topThreePercent,topFivePercent:number,topFiveDays:spendingDay[]}`, `weeks: {week:integer,from:date,to:date,expense:integer,dailyAverage:number,count:integer,topCategory:category\|null}[]` |
+| `/monthly/recurring` | `month`, `through`, `userId`, `recurringExpense/ordinaryExpense/recurringCount: integer`, `recurringSharePercent: number`, `largestRecurringTransaction: object\|null`, `recurringCategories: category[]` |
+| `/monthly/comparison` | `month`, `userId`, `currentMonthPartial: boolean`, `fullPreviousMonthComparison/sameElapsedDaysComparison: comparison\|null`. `comparison`에는 `previousFrom/previousThrough/currentFrom/currentThrough: date`, `totalExpense/dailyAverage/expenseCount/averageTransaction/recurringSharePercent/daysWithoutRecordedExpense: change`, `categories: {코드:change}`가 있습니다. 같은 경과일 비교는 완료된 월에 `null`입니다. |
+| `/monthly/insights` | `month`, `userId`, `analysis`, `insights: insight[]` |
+| `/challenges/monthly` | `month`, `through`, `userId`, `participationDays/daysWithinAllowance/daysOverAllowance/challengeExpense/recurringExpenseWithinChallenges/successConfirmed/failureConfirmed/abandoned: integer` |
+| `/challenges/overall` | `userId`, `totalCreated/scheduled/inProgress/completed/success/failed/abandoned: integer`, `successRatePercent: number\|null`, `successfulTotalBudget/successfulTotalSpent/cumulativeUnusedBudget: integer`, `averageBudgetUsePercent/averageDailySpent/averageParticipationDays/averageUnusedBudget/averageAllowanceCompliancePercent/averageRecurringSharePercent: number\|null`, `currentSuccessStreak/longestSuccessStreak: integer`, `recentResults: {id,status,finishedAt}[]`, `mostFrequentlyTopCategory/mostOftenConcentratedSegment: string\|null`, `overAllowanceDayCategories: {category,amount}[]` |
+| `/challenges/{id}` | `challengeId/userId: UUID`, `status: string`, `analysisThrough: date`, `provisional: boolean`, `totalBudget/cumulativeSpent/remainingBudget/unusedBudget/budgetDifference: integer`, `budgetUsePercent/averageDailySpent/averageDailyRecommended/periodProgressPercent/budgetUseMinusPeriodProgressPoints/allowanceCompliancePercent/averageDailyDifference: number`, `initialDailyAllowance/maxDailySaving/maxDailyOverageAmount: integer`, `elapsedDays/durationDays/daysWithinAllowance/daysOverAllowance: integer`, `dailyTrend: day[]`, `analysis` |
+| `/challenges/{id}/patterns` | `challengeId`, `analysisThrough`, `segments: segment[]`, `volatility: {dailyMean:number,maximum/minimum:integer,standardDeviation:number,coefficientOfVariation:number\|null,comparable:boolean}`, `streaks: {longestWithinAllowance,longestOverAllowance,currentWithinAllowance,currentOverAllowance,daysWithoutRecordedExpense:integer}`, `categories/topThreeCategories/recurringCategories: category[]`, `recurringSharePercent: number`, `concentration: {mostSpentDay,leastSpentDayWithExpense:spendingDay\|null,largestTransaction:object\|null,topThreeDays:spendingDay[],topThreeDaysSharePercent:number}` |
+| `/challenges/{id}/insights` | `challengeId/userId`, `status`, `analysisThrough`, `analysis`, `outcome: object\|null`, `insights: insight[]`. 실패 시 `outcome.atConfirmation`은 저장된 `categories`, `topTransactions`, `maxSpendingDay`, `topThreeDays`, 집중도·고정지출 비율을 포함하며 과거 기록이 없으면 해당 필드는 `null`입니다. `outcome.currentRecalculation`은 현재 거래 기준입니다. |
+| `/challenges/{id}/comparison` | 직전 도전이 없으면 `challengeId`, `comparable:false`, `reason:NO_PREVIOUS_CHALLENGE`. 있으면 `previousChallengeId`, `currentProvisional`, `currentThrough/previousThrough: date`, `totalBudget/durationDays/totalExpense/dailyAverage/budgetUsePercent/unusedBudget/allowanceCompliancePercent/daysWithoutRecordedExpense/daysWithoutRecordedExpensePercent/longestWithinAllowance/longestOverAllowance/recurringSharePercent/dailyStandardDeviation: change`, `categories: {코드:{amount:change,dailyAverage:change}}`, `previousStatus/currentStatus`, `comparisonBasis`가 추가됩니다. |
+
+`day`는 `date: date`, `day: integer`, `allowance/spent/difference/cumulativeSpent/remainingBudget: integer`, `budgetUsePercent/periodProgressPercent/depletionGapPoints: number`입니다. `segment`는 `segment: EARLY\|MIDDLE\|LATE`, `from/to: date`, `expense: integer`, `dailyAverage/sharePercent/budgetUsePoints/periodSharePercent/depletionGapPoints: number`, `topCategory: category\|null`, `daysOverAllowance: integer`입니다. 1일은 `EARLY`만, 2일은 `EARLY`·`LATE`만 반환합니다.
 
 ## 검증
 

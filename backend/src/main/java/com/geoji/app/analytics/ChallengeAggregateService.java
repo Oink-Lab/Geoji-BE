@@ -146,7 +146,7 @@ public class ChallengeAggregateService {
                     overdaySpending.merge(category, amount, Long::sum));
             long[] segments = new long[3];
             for (int i = 0; i < c.dayCount(); i++) {
-                int index = c.dayCount() == 2 ? i * 2 : Math.min(2, i * 3 / c.dayCount());
+                int index = ChallengeAnalyticsService.segmentIndex(i, c.dayCount());
                 segments[index] += c.days().get(i).spent();
             }
             if (c.spent() > 0) { int index = 0; for (int i = 1; i < 3; i++) if (segments[i] > segments[index]) index = i; segmentWins[index]++; }
