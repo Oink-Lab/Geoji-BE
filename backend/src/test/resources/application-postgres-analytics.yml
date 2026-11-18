@@ -1,0 +1,13 @@
+spring:
+  datasource:
+    url: ${POSTGRES_ANALYTICS_TEST_URL}
+    username: ${POSTGRES_ANALYTICS_TEST_USER}
+    password: ${POSTGRES_ANALYTICS_TEST_PASSWORD}
+  flyway:
+    enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+geoji:
+  jwt:
+    secret-base64: dGVzdC1zZWNyZXQtdGVzdC1zZWNyZXQtdGVzdC1zZWNyZXQtMTIzNDU2

@@ -60,6 +60,9 @@ public class Challenge {
     @Column(name = "failure_spent_snapshot")
     private Long failureSpentSnapshot;
 
+    @Column(name = "failure_analysis_snapshot", columnDefinition = "text")
+    private String failureAnalysisSnapshot;
+
     @Column(name = "failure_reason", length = 40)
     private String failureReason;
 

@@ -63,3 +63,6 @@ Python 3.12 환경에서 `cd ai-service`, `pip install -r requirements.txt`, `uv
 
 ## 절약 챌린지
 챌린지 API: [backend/PHASE3_API.md](backend/PHASE3_API.md)
+
+## 소비 및 챌린지 분석
+월간 소비·챌린지 분석 API와 계산 기준: [backend/ANALYTICS_API.md](backend/ANALYTICS_API.md)
